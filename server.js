@@ -9,28 +9,31 @@ require('dotenv').config();
 
 const app = express();
 
-// ─── CORS must be FIRST — before rate limiters and everything else ────────────
-// This ensures even rate-limited and error responses have CORS headers
+const allowedOrigins = process.env.FRONTEND_URL
+  ? process.env.FRONTEND_URL.split(',').map(o => o.trim())
+  : [];
+
 const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, curl, Postman)
-    if (!origin) return callback(null, true);
-    const allowed = (process.env.FRONTEND_URL || '*');
-    if (allowed === '*' || allowed === origin) return callback(null, true);
-    // Support comma-separated list of origins
-    const origins = allowed.split(',').map(o => o.trim());
-    if (origins.includes(origin)) return callback(null, true);
-    callback(new Error('Not allowed by CORS'));
+  origin: (origin, callback) => {
+
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    if (
+      allowedOrigins.includes(origin) ||
+      origin.endsWith(".vercel.app")
+    ) {
+      return callback(null, true);
+    }
+
+    callback(new Error("Not allowed by CORS"));
   },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-  optionsSuccessStatus: 200
+
+  credentials: true
 };
 
 app.use(cors(corsOptions));
-// Handle preflight for all routes explicitly
-app.options('*', cors(corsOptions));
 
 // ─── Security Middleware ────────────────────────────────────────────────────
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
