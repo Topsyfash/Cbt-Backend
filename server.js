@@ -9,46 +9,71 @@ require('dotenv').config();
 
 const app = express();
 
+// ─── CORS must be FIRST — before rate limiters and everything else ────────────
+// This ensures even rate-limited and error responses have CORS headers
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, Postman)
+    if (!origin) return callback(null, true);
+    const allowed = (process.env.FRONTEND_URL || '*');
+    if (allowed === '*' || allowed === origin) return callback(null, true);
+    // Support comma-separated list of origins
+    const origins = allowed.split(',').map(o => o.trim());
+    if (origins.includes(origin)) return callback(null, true);
+    callback(new Error('Not allowed by CORS'));
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+// Handle preflight for all routes explicitly
+app.options('*', cors(corsOptions));
+
 // ─── Security Middleware ────────────────────────────────────────────────────
-app.use(helmet());
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(mongoSanitize());
 
+// ─── Rate Limiters — AFTER cors so blocked responses still have CORS headers ─
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,
-  message: { success: false, message: 'Too many requests, please try again later.' }
+  windowMs: 15 * 60 * 1000,
+  max: 300, // raised from 100 — exam auto-saves fire frequently
+  message: { success: false, message: 'Too many requests, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 app.use('/api/', limiter);
 
-// Stricter limiter for auth routes
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
-  message: { success: false, message: 'Too many login attempts, please try again later.' }
+  max: 30, // raised from 20 to accommodate page refreshes
+  message: { success: false, message: 'Too many login attempts, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 app.use('/api/auth/', authLimiter);
 
 // ─── General Middleware ──────────────────────────────────────────────────────
-app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Static folder for uploaded images
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Static folder for uploaded images — cross-origin allowed for img tags
+app.use("/uploads", (req,res,next) => {
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  next();
+}, express.static(path.join(__dirname, 'uploads')));
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
-app.use('/api/auth', require('./routes/authRoutes'));
-app.use('/api/users', require('./routes/userRoutes'));
-app.use('/api/classes', require('./routes/classRoutes'));
-app.use('/api/subjects', require('./routes/subjectRoutes'));
-app.use('/api/exams', require('./routes/examRoutes'));
+app.use('/api/auth',      require('./routes/authRoutes'));
+app.use('/api/users',     require('./routes/userRoutes'));
+app.use('/api/classes',   require('./routes/classRoutes'));
+app.use('/api/subjects',  require('./routes/subjectRoutes'));
+app.use('/api/exams',     require('./routes/examRoutes'));
 app.use('/api/questions', require('./routes/questionRoutes'));
-app.use('/api/attempts', require('./routes/attemptRoutes'));
-app.use('/api/results', require('./routes/resultRoutes'));
+app.use('/api/attempts',  require('./routes/attemptRoutes'));
+app.use('/api/results',   require('./routes/resultRoutes'));
 app.use('/api/analytics', require('./routes/analyticsRoutes'));
 
 // ─── Health Check ────────────────────────────────────────────────────────────
@@ -65,6 +90,10 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
   console.error('Global error:', err);
 
+  // CORS error
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({ success: false, message: 'CORS: origin not allowed' });
+  }
   if (err.name === 'ValidationError') {
     const errors = Object.values(err.errors).map(e => e.message);
     return res.status(400).json({ success: false, message: errors.join(', ') });
@@ -79,7 +108,6 @@ app.use((err, req, res, next) => {
   if (err.name === 'TokenExpiredError') {
     return res.status(401).json({ success: false, message: 'Token expired' });
   }
-
   res.status(err.statusCode || 500).json({
     success: false,
     message: err.message || 'Internal server error'
@@ -95,7 +123,7 @@ mongoose.connect(process.env.MONGO_URI)
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   })
   .catch(err => {
-    console.error(' MongoDB connection error:', err.message);
+    console.error('MongoDB connection error:', err.message);
     process.exit(1);
   });
 

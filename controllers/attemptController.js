@@ -205,7 +205,7 @@ exports.submitExam = async (req, res) => {
     // Include detailed result if configured
     if (exam.showResultsImmediately) {
       await attempt.populate([
-        { path: 'answers.question', select: 'questionText options correctAnswer explanation marks' }
+        { path: 'answers.question', select: 'questionText options correctAnswer explanation marks image' }
       ]);
       responseData.detail = attempt.answers;
     }
@@ -279,7 +279,7 @@ exports.getAttemptDetail = async (req, res) => {
     const attempt = await ExamAttempt.findById(req.params.id)
       .populate('student', 'fullName email admissionNumber')
       .populate({ path: 'exam', populate: [{ path: 'subject', select: 'name code' }, { path: 'class', select: 'name level' }] })
-      .populate('answers.question', 'questionText options correctAnswer explanation marks');
+      .populate('answers.question', 'questionText options correctAnswer explanation marks image');
 
     if (!attempt) return sendError(res, 404, 'Attempt not found');
 
