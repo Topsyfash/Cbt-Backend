@@ -24,4 +24,4 @@ router.patch('/:attemptId/grade/:questionId', authorize('teacher', 'admin'), gra
 // Shared
 router.get('/:id', getAttemptDetail);
 
-module.exports = router;
+module.exports = router; 
