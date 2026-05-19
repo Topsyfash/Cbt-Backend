@@ -11,22 +11,36 @@ const questionSchema = new mongoose.Schema({
     required: [true, 'Question text is required'],
     trim: true
   },
+  // ─── MCQ fields ────────────────────────────────────────────────────────────
   options: {
     type: [
       {
-        label: { type: String, required: true },  // "A", "B", "C", "D"
-        text:  { type: String, required: true }
+        label: { type: String },
+        text:  { type: String }
       }
     ],
-    validate: {
-      validator: (v) => v.length >= 2 && v.length <= 6,
-      message: 'A question must have between 2 and 6 options'
-    }
+    default: []
   },
   correctAnswer: {
-    type: String,   // matches option label e.g. "A"
-    required: [true, 'Correct answer is required']
+    type: String,
+    default: null   // null for open-ended
   },
+  // ─── Question type ─────────────────────────────────────────────────────────
+  questionType: {
+    type: String,
+    enum: ['mcq', 'open_ended'],
+    default: 'mcq'
+  },
+  // ─── Open-ended fields ──────────────────────────────────────────────────────
+  wordLimit: {
+    type: Number,
+    default: null   // optional max word limit shown to student
+  },
+  sampleAnswer: {
+    type: String,
+    default: null   // shown to teacher during grading
+  },
+  // ─── Common fields ─────────────────────────────────────────────────────────
   marks: {
     type: Number,
     default: 1,
@@ -38,7 +52,7 @@ const questionSchema = new mongoose.Schema({
     default: null
   },
   image: {
-    type: String,   // image URL/path
+    type: String,
     default: null
   },
   order: {
