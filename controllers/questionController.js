@@ -19,7 +19,7 @@ exports.addQuestion = async (req, res) => {
       return sendError(res, 403, 'Not authorized');
     }
 
-    const imageUrl = req.file ? `/uploads/questions/${req.file.filename}` : null;
+    const imageUrl = req.file ? (req.file.path||req.file.secure_url) : null;
 
     const question = await Question.create({
       ...req.body,
@@ -93,7 +93,7 @@ exports.updateQuestion = async (req, res) => {
       req.body.options = JSON.parse(req.body.options);
     }
     if (req.file) {
-      req.body.image = `/uploads/questions/${req.file.filename}`;
+      req.body.image = req.file.path||req.file.secure_url;
     }
 
     const updated = await Question.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });

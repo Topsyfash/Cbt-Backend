@@ -16,7 +16,14 @@ const storage = new CloudinaryStorage({
       allowed_formats: ['jpg', 'jpeg', 'png', 'gif'],
     transformation: [{ width: 1200,quality: 'auto',fetch: 'auto',}],
   },
+  params:async (req,file) => ({
+  folder: 'cbt_questions',
+  allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+  transformation: [{ width: 1200, quality: 'auto', fetch: 'auto', }],
+  public_id : `question_${Date.now()}`,
+}),
 });
+
 
 const upload = multer({ storage });
 

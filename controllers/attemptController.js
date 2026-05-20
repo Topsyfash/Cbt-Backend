@@ -84,24 +84,57 @@ exports.startExam = async (req, res) => {
     if (exam.startTime && now < exam.startTime) return sendError(res, 400, 'Exam has not started yet');
     if (exam.endTime   && now > exam.endTime)   return sendError(res, 400, 'Exam window has closed');
 
-    // Resume or block re-attempt
-    const existingAttempt = await ExamAttempt.findOne({ student: student._id, exam: examId });
+    // Check for existing attempt — resume if in_progress, retake if allowed, block otherwise
+    const existingAttempt = await ExamAttempt.findOne(
+      { student: student._id, exam: examId },
+      null,
+      { sort: { createdAt: -1 } }  // most recent first
+    );
+
     if (existingAttempt) {
       if (existingAttempt.status === 'in_progress') {
+        const elapsed   = Math.floor((now - existingAttempt.startedAt) / 1000);
+        const remaining = exam.duration * 60 - elapsed;
+
+        // Time expired while student was away — auto-submit now
+        if (remaining <= 0) {
+          const { gradedAnswers, mcqScore, openScore, totalScore, percentage, isPassed, hasOpenEnded } =
+            await gradeAttempt(existingAttempt, exam);
+          existingAttempt.answers       = gradedAnswers;
+          existingAttempt.mcqScore      = mcqScore;
+          existingAttempt.openScore     = openScore;
+          existingAttempt.score         = totalScore;
+          existingAttempt.percentage    = percentage;
+          existingAttempt.isPassed      = isPassed;
+          existingAttempt.submittedAt   = now;
+          existingAttempt.timeTaken     = Math.floor((now - existingAttempt.startedAt) / 1000);
+          existingAttempt.status        = 'auto_submitted';
+          existingAttempt.gradingStatus = hasOpenEnded ? 'pending' : 'not_required';
+          await existingAttempt.save();
+          return sendError(res, 400,
+            'Your exam time expired while you were away. Your answers have been submitted automatically.');
+        }
+
+        // Resume — send exact same questions in same order with all saved answers
         const questions = await Question.find({ _id: { $in: existingAttempt.questionOrder } })
           .select('-correctAnswer -explanation -sampleAnswer');
         const orderMap = {};
         existingAttempt.questionOrder.forEach((id, idx) => { orderMap[id.toString()] = idx; });
         questions.sort((a, b) => orderMap[a._id.toString()] - orderMap[b._id.toString()]);
 
-        const elapsed = Math.floor((now - existingAttempt.startedAt) / 1000);
-        const remaining = Math.max(0, exam.duration * 60 - elapsed);
         return sendSuccess(res, 200, 'Resuming existing attempt', {
-          attempt: existingAttempt, questions, remaining,
+          attempt: existingAttempt,
+          questions,
+          remaining: Math.max(0, remaining),
           exam: { title: exam.title, duration: exam.duration, instructions: exam.instructions, totalMarks: exam.totalMarks }
         });
       }
-      if (!exam.allowRetake) return sendError(res, 400, 'You have already attempted this exam');
+
+      // Attempt exists but is already submitted
+      if (!exam.allowRetake) {
+        return sendError(res, 400, 'You have already attempted this exam');
+      }
+      // allowRetake is true — fall through and create a fresh attempt
     }
 
     // Fetch all questions — MCQs randomized separately, open-ended always last
