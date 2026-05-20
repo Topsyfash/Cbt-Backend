@@ -327,8 +327,9 @@ exports.gradeOpenAnswer = async (req, res) => {
       })
       .every(a => a.isGraded);
 
+    // Only sum scores from answers that have been teacher-graded (open-ended)
     const openScore = attempt.answers
-      .filter(a => a.isGraded || a.teacherScore !== null)
+      .filter(a => a.isGraded === true)
       .reduce((s, a) => s + (a.teacherScore ?? 0), 0);
 
     attempt.openScore  = openScore;
@@ -337,9 +338,15 @@ exports.gradeOpenAnswer = async (req, res) => {
       ? Math.round((attempt.score / attempt.exam.totalMarks) * 100 * 10) / 10
       : 0;
 
-    // Check if all open-ended answers are now graded
-    const openAnswers = attempt.answers.filter(a => a.openAnswer !== null && a.openAnswer !== undefined);
-    const allOpenGraded = openAnswers.every(a => a.isGraded);
+    // Check if ALL open-ended answers (identified by questionType) are now graded
+    // We check by questionId — populate is not available here so use the isGraded flag approach:
+    // An answer is open-ended if it has no 'selected' MCQ value but has an openAnswer or was left blank
+    const openEndedAnswers = attempt.answers.filter(a => {
+      // If selected is null/undefined and the answer slot exists, treat as open-ended candidate
+      // More reliable: check if teacherScore field was ever set (undefined = MCQ, null/number = open)
+      return a.selected === null || a.selected === undefined;
+    });
+    const allOpenGraded = openEndedAnswers.length > 0 && openEndedAnswers.every(a => a.isGraded);
 
     if (allOpenGraded) {
       attempt.gradingStatus = 'graded';
@@ -363,7 +370,9 @@ exports.getPendingGrading = async (req, res) => {
       gradingStatus: 'pending'
     })
       .populate('student', 'fullName email')
-      .populate({ path: 'exam', select: 'title subject', populate: { path: 'subject', select: 'name' } })
+      .populate({ path: 'exam', select: 'title totalMarks passMark subject', populate: { path: 'subject', select: 'name' } })
+      // Populate answers.question so the grading modal can read questionType, marks, sampleAnswer etc.
+      .populate('answers.question', 'questionText questionType marks sampleAnswer wordLimit')
       .sort({ submittedAt: 1 });
 
     return sendSuccess(res, 200, 'Pending attempts fetched', { attempts });
